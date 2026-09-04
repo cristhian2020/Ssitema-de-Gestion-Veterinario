@@ -12,7 +12,7 @@ import {
   type User,
 } from "@/db/schema";
 import { appointmentSchema, publicBookingSchema } from "@/lib/validations";
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, or, gte, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { formatDate, formatTime, generateWhatsAppReminderLink } from "@/lib/utils";
 
@@ -177,21 +177,25 @@ export async function bookPublicAppointmentAction(data: unknown) {
   }
 
   try {
-    // 1. Buscar o crear propietario
+    const cleanEmail = parsed.data.email.trim().toLowerCase();
+    const cleanPhone = parsed.data.phone.trim();
+
+    // 1. Buscar o crear propietario (por email o por teléfono)
     let owner = await db.query.owners.findFirst({
-      where: eq(owners.email, parsed.data.email),
+      where: or(eq(owners.email, cleanEmail), eq(owners.phone, cleanPhone)),
     });
 
     if (!owner) {
       const [newOwner] = await db
         .insert(owners)
         .values({
-          fullName: parsed.data.ownerName,
-          email: parsed.data.email,
-          phone: parsed.data.phone,
-          whatsapp: parsed.data.phone,
-          address: "Portal Web",
+          fullName: parsed.data.ownerName.trim(),
+          email: cleanEmail,
+          phone: cleanPhone,
+          whatsapp: cleanPhone,
+          address: "Portal Web (Dirección pendiente)",
           city: "Buenos Aires",
+          notes: "Registrado automáticamente desde Reserva de Cita Web",
         })
         .returning();
       owner = newOwner;
@@ -199,7 +203,7 @@ export async function bookPublicAppointmentAction(data: unknown) {
 
     // 2. Buscar o crear mascota para el dueño
     let pet = await db.query.pets.findFirst({
-      where: and(eq(pets.ownerId, owner.id), eq(pets.name, parsed.data.petName)),
+      where: and(eq(pets.ownerId, owner.id), eq(pets.name, parsed.data.petName.trim())),
     });
 
     if (!pet) {
@@ -207,11 +211,12 @@ export async function bookPublicAppointmentAction(data: unknown) {
         .insert(pets)
         .values({
           ownerId: owner.id,
-          name: parsed.data.petName,
+          name: parsed.data.petName.trim(),
           species: parsed.data.species,
-          breed: "A determinar en consulta",
+          breed: "A determinar",
           sex: "Macho",
           weightKg: "0.0",
+          notes: "Origen: Reserva Portal Web. Ficha clínica pendiente de completar en recepción.",
         })
         .returning();
       pet = newPet;
@@ -234,7 +239,9 @@ export async function bookPublicAppointmentAction(data: unknown) {
       })
       .returning();
 
+    revalidatePath("/dashboard/mascotas");
     revalidatePath("/dashboard/citas");
+    revalidatePath("/dashboard/historial");
     revalidatePath("/dashboard");
 
     return {

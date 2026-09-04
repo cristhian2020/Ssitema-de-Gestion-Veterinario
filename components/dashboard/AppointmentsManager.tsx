@@ -29,6 +29,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { formatDate, formatTime, generateWhatsAppReminderLink } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 interface AppointmentsManagerProps {
   initialAppointments: AppointmentWithDetails[];
@@ -41,6 +42,7 @@ export function AppointmentsManager({
   pets,
   vets,
 }: AppointmentsManagerProps) {
+  const router = useRouter();
   const { toast } = useToast();
   const [appointments, setAppointments] = React.useState(initialAppointments);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
@@ -144,6 +146,15 @@ export function AppointmentsManager({
 
       if (res.success && res.appointment) {
         toast("¡Cita agendada correctamente!", "success");
+        const vet = vets.find((v) => v.id === (selectedVetId ? Number(selectedVetId) : undefined));
+        const newApt: AppointmentWithDetails = {
+          ...res.appointment,
+          pet: pet,
+          owner: pet.owner,
+          vet: vet || null,
+        } as AppointmentWithDetails;
+        setAppointments((prev) => [newApt, ...prev]);
+        router.refresh();
         setIsModalOpen(false);
         // Reset form
         setSelectedPetId("");

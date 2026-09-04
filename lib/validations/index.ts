@@ -6,7 +6,7 @@ export const ownerSchema = z.object({
   documentId: z.string().optional(),
   email: z.string().email("Correo electrónico inválido"),
   phone: z.string().min(6, "Teléfono de contacto requerido"),
-  whatsapp: z.string().min(8, "Número de WhatsApp requerido para recordatorios"),
+  whatsapp: z.string().min(6, "Número de WhatsApp inválido").optional().or(z.literal("")),
   address: z.string().optional(),
   city: z.string().optional(),
   notes: z.string().optional(),

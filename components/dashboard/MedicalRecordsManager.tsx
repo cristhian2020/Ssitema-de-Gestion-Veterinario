@@ -16,7 +16,12 @@ import {
   Weight,
   Search,
   Edit3,
+  Lock,
+  PawPrint,
+  ShieldAlert,
+  Sparkles,
 } from "lucide-react";
+import { useAuth } from "@/components/providers/AuthProvider";
 import {
   type MedicalRecordWithDetails,
   type VaccineWithPet,
@@ -36,6 +41,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { formatDate, formatDateTime } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 interface MedicalRecordsManagerProps {
   initialRecords: MedicalRecordWithDetails[];
@@ -50,7 +56,9 @@ export function MedicalRecordsManager({
   pets,
   vets,
 }: MedicalRecordsManagerProps) {
+  const router = useRouter();
   const { toast } = useToast();
+  const { isReceptionist, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = React.useState<"records" | "vaccines">("records");
   const [records, setRecords] = React.useState(initialRecords);
   const [vaccines, setVaccines] = React.useState(initialVaccines);
@@ -209,6 +217,15 @@ export function MedicalRecordsManager({
 
         if (res.success && res.record) {
           toast("Consulta médica registrada en la historia clínica", "success");
+          const pet = pets.find((p) => p.id === Number(selectedPetId));
+          const vet = vets.find((v) => v.id === (selectedVetId ? Number(selectedVetId) : undefined));
+          const newRecordWithDetails: MedicalRecordWithDetails = {
+            ...res.record,
+            pet: pet || null,
+            vet: vet || null,
+          } as MedicalRecordWithDetails;
+          setRecords((prev) => [newRecordWithDetails, ...prev]);
+          router.refresh();
           setIsRecordModalOpen(false);
         } else {
           toast(res.error || "Error al registrar la consulta", "error");
@@ -254,6 +271,7 @@ export function MedicalRecordsManager({
                 : v
             )
           );
+          router.refresh();
           setIsVaccineModalOpen(false);
           setEditingVaccineId(null);
         } else {
@@ -272,6 +290,13 @@ export function MedicalRecordsManager({
 
         if (res.success && res.vaccine) {
           toast("Vacuna / Antiparasitario programado con éxito", "success");
+          const pet = pets.find((p) => p.id === Number(vaccinePetId));
+          const newVaccineWithPet: VaccineWithPet = {
+            ...res.vaccine,
+            pet: pet || null,
+          } as VaccineWithPet;
+          setVaccines((prev) => [newVaccineWithPet, ...prev]);
+          router.refresh();
           setIsVaccineModalOpen(false);
         } else {
           toast(res.error || "Error al programar vacuna", "error");
@@ -383,14 +408,21 @@ export function MedicalRecordsManager({
 
         <div className="flex items-center gap-2">
           {activeTab === "records" ? (
-            <Button
-              variant="primary"
-              size="md"
-              onClick={handleOpenNewRecordModal}
-            >
-              <Plus className="w-4 h-4" />
-              Nueva Consulta Médica
-            </Button>
+            !isReceptionist ? (
+              <Button
+                variant="primary"
+                size="md"
+                onClick={handleOpenNewRecordModal}
+              >
+                <Plus className="w-4 h-4" />
+                Nueva Consulta Médica
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100/90 rounded-2xl text-xs text-slate-500 font-medium border border-slate-200">
+                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                <span>Consultas clínicas reservadas a Veterinarios/Admin</span>
+              </div>
+            )
           ) : (
             <Button
               variant="primary"
@@ -490,14 +522,16 @@ export function MedicalRecordsManager({
 
                   {/* Actions: Edit & Print */}
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handleEditRecord(record)}
-                    >
-                      <Edit3 className="w-3.5 h-3.5 text-[#0066cc]" />
-                      Editar Ficha
-                    </Button>
+                    {!isReceptionist && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleEditRecord(record)}
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-[#0066cc]" />
+                        Editar Ficha
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -681,7 +715,16 @@ export function MedicalRecordsManager({
             <Select
               label="Paciente (Mascota)"
               value={selectedPetId}
-              onChange={(e) => setSelectedPetId(e.target.value)}
+              onChange={(e) => {
+                const newId = e.target.value;
+                setSelectedPetId(newId);
+                if (!editingRecordId && newId) {
+                  const found = pets.find((p) => String(p.id) === String(newId));
+                  if (found && found.weightKg && found.weightKg !== "0.0" && found.weightKg !== "0") {
+                    setWeightKg(found.weightKg);
+                  }
+                }
+              }}
               required
             >
               <option value="">Selecciona paciente...</option>
@@ -705,6 +748,87 @@ export function MedicalRecordsManager({
               ))}
             </Select>
           </div>
+
+          {/* Ficha Resumen Clínico Auto-cargada del Paciente */}
+          {(() => {
+            const petData = pets.find((p) => String(p.id) === String(selectedPetId));
+            if (!petData) return null;
+            return (
+              <div className="bg-linear-to-br from-[#0066cc]/5 via-white to-slate-50 border border-[#0066cc]/20 rounded-2xl p-4 space-y-2.5 shadow-xs transition-all animate-in fade-in-50">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-[#0066cc] text-white flex items-center justify-center font-bold shadow-xs">
+                      <PawPrint className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-base text-[#1d1d1f] leading-tight">
+                          {petData.name}
+                        </h4>
+                        <Badge variant="blue" size="sm">
+                          {petData.species}
+                        </Badge>
+                        <Badge variant="gray" size="sm">
+                          {petData.breed}
+                        </Badge>
+                        <Badge variant="purple" size="sm">
+                          {petData.sex}
+                        </Badge>
+                        {petData.birthDate && (
+                          <span className="text-[11px] text-[#7a7a7a]">
+                            • Nac: {formatDate(petData.birthDate)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-[#7a7a7a] mt-0.5 block">
+                        Tutor: <strong className="text-[#1d1d1f]">{petData.owner?.fullName}</strong> • Tel: {petData.owner?.phone}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase font-semibold text-[#8e8e93] block">Peso en Ficha</span>
+                    <span className="font-bold text-sm text-[#0066cc]">
+                      {petData.weightKg && petData.weightKg !== "0.0" ? `${petData.weightKg} kg` : "Por registrar"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-black/5 text-[11px]">
+                  <div>
+                    <span className="text-[#8e8e93] block">Microchip ISO:</span>
+                    <span className="font-mono text-[#1d1d1f]">
+                      {petData.microchip || "Sin microchip"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#8e8e93] block">Dirección Tutor:</span>
+                    <span className="text-[#1d1d1f] truncate block">
+                      {petData.owner?.address || "No especificada"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#8e8e93] block">Datos Clínicos:</span>
+                    <span className="text-emerald-700 font-medium">Auto-cargados al formulario</span>
+                  </div>
+                </div>
+
+                {petData.allergies ? (
+                  <div className="bg-red-500/10 border border-red-200 text-red-700 px-3 py-2 rounded-xl flex items-center gap-2 text-xs">
+                    <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+                    <div>
+                      <strong className="font-semibold">¡ALERTA MÉDICA / ALERGIAS!:</strong> {petData.allergies}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-[#8e8e93] flex items-center gap-1.5 pt-1 border-t border-black/5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Sin alergias reportadas en ficha previa. Puedes ajustar los signos vitales abajo.</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-1">

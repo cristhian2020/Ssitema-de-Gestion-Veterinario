@@ -13,11 +13,15 @@ import {
   Clock,
   CheckCircle2,
   DollarSign,
+  Lock,
+  ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import {
   type InventoryItemWithAlert,
   updateStockAction,
   createInventoryItemAction,
+  deleteInventoryItemAction,
 } from "@/lib/actions/inventory";
 import { type Service } from "@/db/schema";
 import { Button } from "@/components/ui/button";
@@ -27,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { formatCurrency } from "@/lib/utils";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 interface InventoryManagerProps {
   initialInventory: InventoryItemWithAlert[];
@@ -38,6 +43,7 @@ export function InventoryManager({
   services,
 }: InventoryManagerProps) {
   const { toast } = useToast();
+  const { isAdmin, role } = useAuth();
   const [activeTab, setActiveTab] = React.useState<"inventory" | "services">("inventory");
   const [inventory, setInventory] = React.useState(initialInventory);
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -89,6 +95,28 @@ export function InventoryManager({
       }
     } catch {
       toast("Error de conexión", "error");
+    }
+  };
+
+  const handleDeleteItem = async (itemId: number, itemName: string) => {
+    if (!isAdmin) {
+      toast("Solo el Administrador puede dar de baja productos", "error");
+      return;
+    }
+    if (!confirm(`¿Estás seguro de eliminar "${itemName}" del inventario?`)) {
+      return;
+    }
+
+    try {
+      const res = await deleteInventoryItemAction(itemId);
+      if (res.success) {
+        toast(`"${itemName}" eliminado correctamente`, "success");
+        setInventory((prev) => prev.filter((i) => i.id !== itemId));
+      } else {
+        toast(res.error || "No se pudo eliminar el ítem", "error");
+      }
+    } catch {
+      toast("Error de conexión al eliminar", "error");
     }
   };
 
@@ -152,10 +180,17 @@ export function InventoryManager({
         </div>
 
         {activeTab === "inventory" && (
-          <Button variant="primary" size="md" onClick={() => setIsModalOpen(true)}>
-            <Plus className="w-4 h-4" />
-            Nuevo Ítem de Stock
-          </Button>
+          isAdmin ? (
+            <Button variant="primary" size="md" onClick={() => setIsModalOpen(true)}>
+              <Plus className="w-4 h-4" />
+              Nuevo Ítem de Stock (Admin)
+            </Button>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100/90 rounded-2xl text-xs text-slate-600 font-medium border border-slate-200">
+              <Lock className="w-3.5 h-3.5 text-slate-400" />
+              <span>Alta de productos & tarifas reservado a Admin</span>
+            </div>
+          )
         )}
       </div>
 
@@ -309,6 +344,17 @@ export function InventoryManager({
                         <PlusCircle className="w-5 h-5" />
                       </button>
                     </div>
+
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteItem(item.id, item.name)}
+                        className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+                        title="Eliminar producto (Solo Admin)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))

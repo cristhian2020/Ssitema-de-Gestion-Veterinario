@@ -1,4 +1,5 @@
 import { db } from "./index";
+import { hashPassword } from "../lib/auth/password";
 import {
   users,
   owners,
@@ -13,6 +14,8 @@ import {
 export async function seedDatabase() {
   console.log("🌱 Iniciando siembra de datos de Huellitas Felices...");
 
+  const defaultPasswordHash = await hashPassword("Huellitas2026!");
+
   // 1. Usuarios / Personal Clínico
   const insertedUsers = await db
     .insert(users)
@@ -20,6 +23,7 @@ export async function seedDatabase() {
       {
         name: "Dra. Valentina Morales",
         email: "valentina.morales@huellitasfelices.com",
+        passwordHash: defaultPasswordHash,
         role: "vet",
         phone: "+54 9 11 4455-8899",
         specialty: "Cirugía & Medicina Felina",
@@ -29,6 +33,7 @@ export async function seedDatabase() {
       {
         name: "Dr. Mateo Rossi",
         email: "mateo.rossi@huellitasfelices.com",
+        passwordHash: defaultPasswordHash,
         role: "vet",
         phone: "+54 9 11 7722-3344",
         specialty: "Medicina General & Ecografía",
@@ -38,6 +43,7 @@ export async function seedDatabase() {
       {
         name: "Camila Torres",
         email: "camila.recepcion@huellitasfelices.com",
+        passwordHash: defaultPasswordHash,
         role: "receptionist",
         phone: "+54 9 11 9988-1122",
         specialty: "Atención al Cliente & Triaje",
@@ -47,6 +53,7 @@ export async function seedDatabase() {
       {
         name: "Dr. Fernando Ruiz",
         email: "admin@huellitasfelices.com",
+        passwordHash: defaultPasswordHash,
         role: "admin",
         phone: "+591 62640539",
         specialty: "Dirección Médica & Cirugía Avanzada",

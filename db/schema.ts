@@ -14,6 +14,7 @@ export const users = pgTable("users", {
   phone: text("phone"),
   specialty: text("specialty"), // Ej. Medicina Felina, Cirugía, General
   avatarUrl: text("avatar_url"),
+  passwordHash: text("password_hash"),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -219,6 +220,48 @@ export const inventoryItems = pgTable("inventory_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ----------------------------------------------------
+// 9. Facturación, Caja Diaria y Pagos (POS)
+// ----------------------------------------------------
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("owner_id")
+    .references(() => owners.id, { onDelete: "cascade" })
+    .notNull(),
+  petId: integer("pet_id").references(() => pets.id, { onDelete: "set null" }),
+  appointmentId: integer("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method", {
+    enum: ["cash", "card", "transfer_qr"],
+  })
+    .default("cash")
+    .notNull(),
+  concept: text("concept").notNull(), // Ej: Consulta General, Cirugía, Vacuna, Farmacia
+  status: text("status", {
+    enum: ["paid", "pending", "cancelled"],
+  })
+    .default("paid")
+    .notNull(),
+  invoiceNumber: text("invoice_number"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const paymentsRelations = relations(payments, ({ one }) => ({
+  owner: one(owners, {
+    fields: [payments.ownerId],
+    references: [owners.id],
+  }),
+  pet: one(pets, {
+    fields: [payments.petId],
+    references: [pets.id],
+  }),
+  appointment: one(appointments, {
+    fields: [payments.appointmentId],
+    references: [appointments.id],
+  }),
+}));
+
 // Types inferidos
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -243,3 +286,7 @@ export type NewService = typeof services.$inferInsert;
 
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type NewInventoryItem = typeof inventoryItems.$inferInsert;
+
+export type Payment = typeof payments.$inferSelect;
+export type NewPayment = typeof payments.$inferInsert;
+

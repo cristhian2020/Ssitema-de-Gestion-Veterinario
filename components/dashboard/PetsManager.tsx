@@ -15,9 +15,23 @@ import {
   Heart,
   FileText,
   Edit3,
+  Trash2,
+  Sparkles,
+  AlertCircle,
+  CheckCircle2,
+  MapPin,
+  Phone,
 } from "lucide-react";
-import { type PetWithOwner, createPetAction, updatePetAction, createOwnerAction } from "@/lib/actions/pets";
+import {
+  type PetWithOwner,
+  createPetAction,
+  updatePetAction,
+  deletePetAction,
+  createOwnerAction,
+  updateOwnerAction,
+} from "@/lib/actions/pets";
 import { type Owner } from "@/db/schema";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -27,6 +41,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface PetsManagerProps {
   initialPets: PetWithOwner[];
@@ -34,11 +49,36 @@ interface PetsManagerProps {
 }
 
 export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerProps) {
+  const router = useRouter();
   const { toast } = useToast();
+  const { isAdmin } = useAuth();
   const [pets, setPets] = React.useState(initialPets);
   const [owners, setOwners] = React.useState(initialOwners);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [speciesFilter, setSpeciesFilter] = React.useState("all");
+
+  const handleDeletePet = async (petId: number, name: string) => {
+    if (!isAdmin) {
+      toast("Solo el Administrador / Director puede dar de baja pacientes", "error");
+      return;
+    }
+    if (!confirm(`¿Estás seguro de eliminar definitivamente a "${name}" del sistema clínico?`)) {
+      return;
+    }
+
+    try {
+      const res = await deletePetAction(petId);
+      if (res.success) {
+        toast(`Mascota "${name}" eliminada del registro`, "success");
+        setPets((prev) => prev.filter((p) => p.id !== petId));
+        setSelectedPetDetail(null);
+      } else {
+        toast(res.error || "No se pudo eliminar la mascota", "error");
+      }
+    } catch {
+      toast("Error de conexión al eliminar", "error");
+    }
+  };
 
   // Modals
   const [isPetModalOpen, setIsPetModalOpen] = React.useState(false);
@@ -69,6 +109,154 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
   const [ownerCity, setOwnerCity] = React.useState("");
   const [ownerNotes, setOwnerNotes] = React.useState("");
 
+  // Complete Profile Form State (Pet + Owner unified)
+  const [isCompleteModalOpen, setIsCompleteModalOpen] = React.useState(false);
+  const [completePetTarget, setCompletePetTarget] = React.useState<PetWithOwner | null>(null);
+
+  // Owner fields for complete modal
+  const [compOwnerName, setCompOwnerName] = React.useState("");
+  const [compOwnerPhone, setCompOwnerPhone] = React.useState("");
+  const [compOwnerWhatsapp, setCompOwnerWhatsapp] = React.useState("");
+  const [compOwnerEmail, setCompOwnerEmail] = React.useState("");
+  const [compOwnerAddress, setCompOwnerAddress] = React.useState("");
+  const [compOwnerDocumentId, setCompOwnerDocumentId] = React.useState("");
+  const [compOwnerCity, setCompOwnerCity] = React.useState("Buenos Aires");
+
+  // Pet fields for complete modal
+  const [compPetName, setCompPetName] = React.useState("");
+  const [compPetSpecies, setCompPetSpecies] = React.useState("Perro");
+  const [compPetBreed, setCompPetBreed] = React.useState("");
+  const [compPetSex, setCompPetSex] = React.useState<"Macho" | "Hembra">("Macho");
+  const [compPetBirthDate, setCompPetBirthDate] = React.useState("");
+  const [compPetWeight, setCompPetWeight] = React.useState("");
+  const [compPetMicrochip, setCompPetMicrochip] = React.useState("");
+  const [compPetAllergies, setCompPetAllergies] = React.useState("");
+  const [compPetNotes, setCompPetNotes] = React.useState("");
+
+  // Helper to detect incomplete profile from web booking
+  const isPendingWebRegistration = (pet: PetWithOwner) => {
+    return (
+      pet.breed.toLowerCase().includes("a determinar") ||
+      Boolean(pet.notes?.toLowerCase().includes("portal web")) ||
+      pet.weightKg === "0.0" ||
+      pet.weightKg === "0" ||
+      !pet.birthDate ||
+      Boolean(pet.owner?.address?.toLowerCase().includes("portal web"))
+    );
+  };
+
+  const pendingWebCount = pets.filter(isPendingWebRegistration).length;
+
+  const handleOpenCompleteProfile = (pet: PetWithOwner) => {
+    setCompletePetTarget(pet);
+
+    // Tutor fields
+    setCompOwnerName(pet.owner?.fullName || "");
+    setCompOwnerPhone(pet.owner?.phone || "");
+    setCompOwnerWhatsapp(pet.owner?.whatsapp || pet.owner?.phone || "");
+    setCompOwnerEmail(pet.owner?.email || "");
+    setCompOwnerAddress(
+      pet.owner?.address?.includes("Portal Web") ? "" : pet.owner?.address || ""
+    );
+    setCompOwnerDocumentId(pet.owner?.documentId || "");
+    setCompOwnerCity(pet.owner?.city || "Buenos Aires");
+
+    // Pet fields
+    setCompPetName(pet.name);
+    setCompPetSpecies(pet.species);
+    setCompPetBreed(pet.breed.toLowerCase().includes("a determinar") ? "" : pet.breed);
+    setCompPetSex((pet.sex as "Macho" | "Hembra") || "Macho");
+    setCompPetBirthDate(pet.birthDate ? new Date(pet.birthDate).toISOString().split("T")[0] : "");
+    setCompPetWeight(pet.weightKg === "0.0" || pet.weightKg === "0" ? "" : pet.weightKg);
+    setCompPetMicrochip(pet.microchip || "");
+    setCompPetAllergies(pet.allergies || "");
+    setCompPetNotes(pet.notes?.includes("Portal Web") ? "" : pet.notes || "");
+
+    setIsCompleteModalOpen(true);
+  };
+
+  const handleSaveCompleteProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!completePetTarget) return;
+
+    setIsSubmitting(true);
+    try {
+      // 1. Update Owner
+      const ownerRes = await updateOwnerAction(completePetTarget.ownerId, {
+        fullName: compOwnerName,
+        phone: compOwnerPhone,
+        whatsapp: compOwnerWhatsapp || compOwnerPhone,
+        email: compOwnerEmail,
+        address: compOwnerAddress || "Dirección confirmada en clínica",
+        city: compOwnerCity,
+        documentId: compOwnerDocumentId || undefined,
+        notes: completePetTarget.owner?.notes,
+      });
+
+      if (!ownerRes.success) {
+        toast(ownerRes.error || "Error al actualizar datos del tutor", "error");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2. Update Pet
+      const petRes = await updatePetAction(completePetTarget.id, {
+        ownerId: completePetTarget.ownerId,
+        name: compPetName,
+        species: compPetSpecies,
+        breed: compPetBreed || "Mestizo",
+        sex: compPetSex,
+        birthDate: compPetBirthDate || undefined,
+        weightKg: compPetWeight || "1.0",
+        microchip: compPetMicrochip || undefined,
+        allergies: compPetAllergies || undefined,
+        notes: compPetNotes || "Ficha clínica completada en recepción.",
+      });
+
+      if (!petRes.success) {
+        toast(petRes.error || "Error al actualizar ficha de la mascota", "error");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 3. Optimistic immediate state update
+      const updatedOwner = ownerRes.owner!;
+      const updatedPet = petRes.pet!;
+
+      setOwners((prev) =>
+        prev.map((o) => (o.id === updatedOwner.id ? updatedOwner : o))
+      );
+
+      setPets((prev) =>
+        prev.map((p) =>
+          p.id === updatedPet.id
+            ? {
+                ...p,
+                ...updatedPet,
+                owner: updatedOwner,
+              }
+            : p
+        )
+      );
+
+      if (selectedPetDetail && selectedPetDetail.id === updatedPet.id) {
+        setSelectedPetDetail({
+          ...selectedPetDetail,
+          ...updatedPet,
+          owner: updatedOwner,
+        });
+      }
+
+      toast(`¡Ficha de "${compPetName}" completada exitosamente!`, "success");
+      setIsCompleteModalOpen(false);
+      router.refresh();
+    } catch {
+      toast("Error de conexión al guardar la ficha", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   React.useEffect(() => {
     setPets(initialPets);
   }, [initialPets]);
@@ -80,8 +268,14 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
       pet.owner?.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (pet.microchip && pet.microchip.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const matchesSpecies = speciesFilter === "all" || pet.species === speciesFilter;
-    return matchesSearch && matchesSpecies;
+    const matchesFilter =
+      speciesFilter === "all"
+        ? true
+        : speciesFilter === "incomplete"
+        ? isPendingWebRegistration(pet)
+        : pet.species === speciesFilter;
+
+    return matchesSearch && matchesFilter;
   });
 
   const handleOpenNewPetModal = () => {
@@ -182,6 +376,12 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
 
         if (res.success && res.pet) {
           toast(`¡${petName} registrado con éxito!`, "success");
+          const createdPet: PetWithOwner = {
+            ...res.pet,
+            owner: owners.find((o) => o.id === Number(ownerId))!,
+          };
+          setPets((prev) => [createdPet, ...prev]);
+          router.refresh();
           setIsPetModalOpen(false);
           // Reset
           setPetName("");
@@ -220,6 +420,7 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
         toast(`Propietario ${res.owner.fullName} registrado`, "success");
         setOwners((prev) => [res.owner!, ...prev]);
         setOwnerId(String(res.owner.id));
+        router.refresh();
         setIsOwnerModalOpen(false);
         // Reset
         setOwnerFullName("");
@@ -269,6 +470,38 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
         </div>
       </div>
 
+      {/* Alerta de Citas Web pendientes de completar */}
+      {pendingWebCount > 0 && (
+        <div className="bg-linear-to-r from-amber-500/15 via-amber-500/10 to-orange-500/10 border border-amber-300 rounded-3xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-bold text-sm sm:text-base text-amber-950">
+                  {pendingWebCount} {pendingWebCount === 1 ? "paciente nuevo ingresó" : "pacientes nuevos ingresaron"} por Cita Web
+                </h4>
+                <Badge variant="amber" size="sm">
+                  Pendientes de Ficha
+                </Badge>
+              </div>
+              <p className="text-xs text-amber-900/80 mt-0.5">
+                Los dueños agendaron desde el portal público. Revisa y completa los datos de la mascota (raza, peso, chip) y del tutor (dirección, DNI).
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setSpeciesFilter(speciesFilter === "incomplete" ? "all" : "incomplete")}
+            className="border-amber-400 bg-white text-amber-900 hover:bg-amber-100/50 font-semibold text-xs shrink-0 shadow-xs"
+          >
+            {speciesFilter === "incomplete" ? "Ver Todos los Pacientes" : `Filtrar ${pendingWebCount} Pendientes`}
+          </Button>
+        </div>
+      )}
+
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-[#e5e5ea] flex flex-col sm:flex-row items-center gap-3 shadow-xs">
         <div className="relative flex-1 w-full">
@@ -288,6 +521,11 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
           className="h-10 px-3 rounded-xl bg-[#f5f5f7] text-xs font-medium text-[#1d1d1f] border-none focus:ring-2 focus:ring-[#0066cc]/20 cursor-pointer w-full sm:w-auto"
         >
           <option value="all">Todas las Especies</option>
+          {pendingWebCount > 0 && (
+            <option value="incomplete" className="font-semibold text-amber-700">
+              ⚠️ Fichas Web Pendientes ({pendingWebCount})
+            </option>
+          )}
           <option value="Perro">Caninos (Perros)</option>
           <option value="Gato">Felinos (Gatos)</option>
           <option value="Ave">Aves</option>
@@ -330,13 +568,19 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
                       <p className="text-xs text-[#7a7a7a]">
                         {pet.species} • {pet.breed}
                       </p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <Badge variant="gray" size="sm">
                           {pet.sex}
                         </Badge>
                         <Badge variant="blue" size="sm">
-                          {pet.weightKg} kg
+                          {pet.weightKg === "0.0" || pet.weightKg === "0" ? "Sin pesar" : `${pet.weightKg} kg`}
                         </Badge>
+                        {isPendingWebRegistration(pet) && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 border border-amber-300">
+                            <Sparkles className="w-3 h-3 text-amber-600" />
+                            Cita Web (Datos pendientes)
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -393,14 +637,26 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
               {/* Action Buttons */}
               <div className="mt-5 pt-4 border-t border-[#f0f0f0] flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPetDetail(pet)}
-                    className="text-xs font-semibold text-[#0066cc] hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    Ficha
-                  </button>
+                  {isPendingWebRegistration(pet) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleOpenCompleteProfile(pet)}
+                      className="text-xs border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100 font-semibold flex items-center gap-1 shadow-xs"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      Completar Ficha
+                    </Button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPetDetail(pet)}
+                      className="text-xs font-semibold text-[#0066cc] hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      Ficha
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleEditPet(pet)}
@@ -445,6 +701,29 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
           maxWidth="lg"
         >
           <div className="space-y-4 text-sm">
+            {isPendingWebRegistration(selectedPetDetail) && (
+              <div className="bg-amber-500/15 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="w-5 h-5 text-amber-700 shrink-0" />
+                  <div>
+                    <strong className="font-semibold block text-amber-950">Paciente registrado desde Reserva Web</strong>
+                    <span className="text-amber-900/80">Faltan completar datos clínicos (raza definitiva, peso) o del tutor (dirección, DNI).</span>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    handleOpenCompleteProfile(selectedPetDetail);
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs shrink-0 shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Completar Ficha Ahora
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#f5f5f7] border shrink-0">
                 {selectedPetDetail.photoUrl ? (
@@ -465,7 +744,9 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
                   {selectedPetDetail.species} • {selectedPetDetail.breed} • {selectedPetDetail.sex}
                 </p>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="blue">{selectedPetDetail.weightKg} kg</Badge>
+                  <Badge variant="blue">
+                    {selectedPetDetail.weightKg === "0.0" || selectedPetDetail.weightKg === "0" ? "Sin pesar" : `${selectedPetDetail.weightKg} kg`}
+                  </Badge>
                   {selectedPetDetail.birthDate && (
                     <Badge variant="gray">Nac: {formatDate(selectedPetDetail.birthDate)}</Badge>
                   )}
@@ -474,8 +755,18 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
             </div>
 
             <div className="bg-[#f5f5f7] p-4 rounded-2xl space-y-2">
-              <div className="font-semibold text-xs uppercase text-[#8e8e93] tracking-wider">
-                Datos del Propietario
+              <div className="flex items-center justify-between">
+                <div className="font-semibold text-xs uppercase text-[#8e8e93] tracking-wider">
+                  Datos del Propietario / Tutor
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenCompleteProfile(selectedPetDetail)}
+                  className="text-xs font-semibold text-[#0066cc] hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  Editar datos del tutor
+                </button>
               </div>
               <div className="text-sm font-medium text-[#1d1d1f]">
                 {selectedPetDetail.owner?.fullName}
@@ -484,8 +775,13 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
                 Email: {selectedPetDetail.owner?.email} | Tel: {selectedPetDetail.owner?.phone}
               </div>
               <div className="text-xs text-[#7a7a7a]">
-                Dirección: {selectedPetDetail.owner?.address || "No especificada"}
+                Dirección: {selectedPetDetail.owner?.address || "No especificada (Pendiente de completar)"}
               </div>
+              {selectedPetDetail.owner?.documentId && (
+                <div className="text-xs text-[#7a7a7a]">
+                  DNI / Doc: {selectedPetDetail.owner?.documentId}
+                </div>
+              )}
             </div>
 
             {/* Microchip Section */}
@@ -570,6 +866,18 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
                   <Edit3 className="w-3.5 h-3.5 text-[#0066cc]" />
                   Editar Datos (Chip / Peso / Alergias)
                 </Button>
+
+                {isAdmin && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => handleDeletePet(selectedPetDetail.id, selectedPetDetail.name)}
+                    className="w-full sm:w-auto"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Eliminar (Admin)
+                  </Button>
+                )}
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                 <Link href="/dashboard/historial">
@@ -815,6 +1123,201 @@ export function PetsManager({ initialPets, owners: initialOwners }: PetsManagerP
             </Button>
             <Button type="submit" variant="primary" disabled={isSubmitting}>
               {isSubmitting ? "Guardando..." : "Registrar Dueño"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal Completar Ficha Integral (Mascota + Tutor) */}
+      <Modal
+        isOpen={isCompleteModalOpen}
+        onClose={() => setIsCompleteModalOpen(false)}
+        title={`Completar Ficha: ${compPetName || "Paciente"}`}
+        description="Completa y valida los datos de la mascota y del tutor registrados desde la web"
+        maxWidth="xl"
+      >
+        <form onSubmit={handleSaveCompleteProfile} className="space-y-6">
+          {/* SECCIÓN 1: DATOS DEL TUTOR */}
+          <div className="bg-slate-50 border border-[#e5e5ea] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between border-b border-black/5 pb-2">
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-[#0066cc]" />
+                <h4 className="font-semibold text-xs uppercase tracking-wider text-[#1d1d1f]">
+                  1. Datos del Tutor / Propietario
+                </h4>
+              </div>
+              <Badge variant="blue" size="sm">
+                Contacto & WhatsApp
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Nombre y Apellido del Tutor"
+                placeholder="Ej: Laura Méndez"
+                value={compOwnerName}
+                onChange={(e) => setCompOwnerName(e.target.value)}
+                required
+              />
+              <Input
+                label="DNI / Documento de Identidad"
+                placeholder="Ej: 38.452.190"
+                value={compOwnerDocumentId}
+                onChange={(e) => setCompOwnerDocumentId(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Teléfono Principal"
+                placeholder="Ej: +54 9 11 5544-3322"
+                value={compOwnerPhone}
+                onChange={(e) => setCompOwnerPhone(e.target.value)}
+                required
+              />
+              <Input
+                label="WhatsApp para Avisos"
+                placeholder="Ej: 5491155443322"
+                value={compOwnerWhatsapp}
+                onChange={(e) => setCompOwnerWhatsapp(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-1">
+                <Input
+                  label="Correo Electrónico"
+                  type="email"
+                  placeholder="laura@gmail.com"
+                  value={compOwnerEmail}
+                  onChange={(e) => setCompOwnerEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="sm:col-span-1">
+                <Input
+                  label="Dirección Domicilio"
+                  placeholder="Calle y número"
+                  value={compOwnerAddress}
+                  onChange={(e) => setCompOwnerAddress(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="sm:col-span-1">
+                <Input
+                  label="Ciudad / Barrio"
+                  placeholder="Ej: Palermo, CABA"
+                  value={compOwnerCity}
+                  onChange={(e) => setCompOwnerCity(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECCIÓN 2: DATOS DE LA MASCOTA */}
+          <div className="bg-slate-50 border border-[#e5e5ea] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between border-b border-black/5 pb-2">
+              <div className="flex items-center gap-2">
+                <PawPrint className="w-4 h-4 text-[#0066cc]" />
+                <h4 className="font-semibold text-xs uppercase tracking-wider text-[#1d1d1f]">
+                  2. Ficha Médica del Paciente
+                </h4>
+              </div>
+              <Badge variant="purple" size="sm">
+                Clínica & Biometría
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Input
+                label="Nombre de la Mascota"
+                placeholder="Ej: Luna, Thor..."
+                value={compPetName}
+                onChange={(e) => setCompPetName(e.target.value)}
+                required
+              />
+              <Select
+                label="Especie"
+                value={compPetSpecies}
+                onChange={(e) => setCompPetSpecies(e.target.value)}
+                required
+              >
+                <option value="Perro">Perro (Canino)</option>
+                <option value="Gato">Gato (Felino)</option>
+                <option value="Ave">Ave</option>
+                <option value="Exótico">Exótico / Roedor</option>
+                <option value="Otro">Otro</option>
+              </Select>
+              <Input
+                label="Raza (Definida)"
+                placeholder="Ej: Golden Retriever, Siamés..."
+                value={compPetBreed}
+                onChange={(e) => setCompPetBreed(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Select
+                label="Sexo"
+                value={compPetSex}
+                onChange={(e) => setCompPetSex(e.target.value as "Macho" | "Hembra")}
+                required
+              >
+                <option value="Macho">Macho</option>
+                <option value="Hembra">Hembra</option>
+              </Select>
+              <Input
+                label="Fecha de Nacimiento (Aprox.)"
+                type="date"
+                value={compPetBirthDate}
+                onChange={(e) => setCompPetBirthDate(e.target.value)}
+              />
+              <Input
+                label="Peso Actual en Báscula (kg)"
+                placeholder="Ej: 14.5"
+                value={compPetWeight}
+                onChange={(e) => setCompPetWeight(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Microchip ISO Identificador (15 dígitos)"
+                placeholder="Ej: 981098104523190"
+                value={compPetMicrochip}
+                onChange={(e) => setCompPetMicrochip(e.target.value)}
+              />
+              <Input
+                label="Alergias o Contraindicaciones Médicas"
+                placeholder="Ej: Alergia a Penicilina, pulgas..."
+                value={compPetAllergies}
+                onChange={(e) => setCompPetAllergies(e.target.value)}
+              />
+            </div>
+
+            <Textarea
+              label="Observaciones o Notas Clínicas Iniciales"
+              placeholder="Conducta, antecedentes de vacunas previas, hábitos..."
+              value={compPetNotes}
+              onChange={(e) => setCompPetNotes(e.target.value)}
+              rows={2}
+            />
+          </div>
+
+          <div className="pt-4 flex items-center justify-end gap-3 border-t">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsCompleteModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" variant="primary" disabled={isSubmitting} className="bg-[#0066cc] hover:bg-[#0055b3]">
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              {isSubmitting ? "Guardando Ficha..." : "Guardar Ficha Completa"}
             </Button>
           </div>
         </form>

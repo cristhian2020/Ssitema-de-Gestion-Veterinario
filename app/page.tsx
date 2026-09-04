@@ -76,15 +76,21 @@ export default function LandingPage() {
             <a href="#servicios" className="hover:text-[#0066cc] transition-colors">
               Servicios Clínicos
             </a>
+            <a href="#cartilla" className="hover:text-[#0066cc] transition-colors">
+              Cartilla Digital
+            </a>
             <a href="#urgencias" className="hover:text-[#0066cc] transition-colors">
               Guardia 24/7
-            </a>
-            <a href="#nosotros" className="hover:text-[#0066cc] transition-colors">
-              Equipo Médico
             </a>
           </nav>
 
           <div className="flex items-center gap-3">
+            <Link href="/cartilla" className="hidden sm:inline-flex">
+              <Button variant="outline" size="sm" className="border-[#0066cc]/30 text-[#0066cc] hover:bg-[#0066cc]/5">
+                <Sparkles className="w-3.5 h-3.5 text-[#ff9500]" />
+                Mi Cartilla
+              </Button>
+            </Link>
             <Link href="/dashboard">
               <Button variant="secondary" size="sm">
                 Acceso Personal
@@ -222,7 +228,33 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 4. Emergency 24/7 Section */}
+      {/* 4. Cartilla Digital Section */}
+      <section id="cartilla" className="py-12 px-6 max-w-6xl mx-auto w-full">
+        <div className="bg-linear-to-br from-[#0066cc]/5 via-white to-[#0066cc]/10 border border-[#0066cc]/20 rounded-3xl p-8 sm:p-12 flex flex-col md:flex-row items-center justify-between gap-8 shadow-xs">
+          <div className="max-w-xl space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#0066cc]/10 text-[#0066cc] text-xs font-semibold">
+              <Sparkles className="w-3.5 h-3.5 text-[#ff9500]" />
+              Nuevo: Portal Móvil de Propietarios
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[#1d1d1f]">
+              Consulta la Cartilla Sanitaria Digital de tu mascota al instante.
+            </h2>
+            <p className="text-sm text-[#7a7a7a] leading-relaxed">
+              Ingresa con tu número de teléfono registrado o con el número de microchip ISO de tu mascota para ver el carnet de vacunas al día, fechas de refuerzo, consultas previas e indicaciones veterinarias.
+            </p>
+          </div>
+          <div className="shrink-0 flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <Link href="/cartilla" className="w-full sm:w-auto">
+              <Button variant="primary" size="lg" className="w-full sm:w-auto bg-[#0066cc] hover:bg-[#0055b3] shadow-md">
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                Abrir Mi Cartilla Digital
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. Emergency 24/7 Section */}
       <section
         id="urgencias"
         className="py-16 px-6 max-w-6xl mx-auto w-full mb-16"

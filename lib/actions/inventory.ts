@@ -62,7 +62,17 @@ export async function updateStockAction(itemId: number, delta: number) {
   }
 }
 
+import { getSession } from "@/lib/auth/session";
+
 export async function createInventoryItemAction(data: unknown) {
+  const session = await getSession();
+  if (session && session.role !== "admin") {
+    return {
+      success: false,
+      error: "Acceso denegado: Solo los administradores pueden registrar nuevos ítems o fijar tarifas",
+    };
+  }
+
   const parsed = inventoryItemSchema.safeParse(data);
   if (!parsed.success) {
     return {
@@ -94,3 +104,23 @@ export async function createInventoryItemAction(data: unknown) {
     return { success: false, error: error.message || "Error al agregar ítem al inventario" };
   }
 }
+
+export async function deleteInventoryItemAction(itemId: number) {
+  const session = await getSession();
+  if (session && session.role !== "admin") {
+    return {
+      success: false,
+      error: "Acceso denegado: Solo los administradores pueden eliminar ítems del catálogo",
+    };
+  }
+
+  try {
+    await db.delete(inventoryItems).where(eq(inventoryItems.id, itemId));
+    revalidatePath("/dashboard/inventario");
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error deleting inventory item:", error);
+    return { success: false, error: error.message || "Error al eliminar producto" };
+  }
+}
+
