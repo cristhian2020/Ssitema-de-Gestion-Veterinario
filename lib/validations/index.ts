@@ -48,7 +48,7 @@ export const appointmentSchema = z.object({
 // 4. Esquema para Cita Rápida desde Landing Pública
 export const publicBookingSchema = z.object({
   ownerName: z.string().min(2, "Ingresa tu nombre"),
-  phone: z.string().min(8, "Ingresa tu teléfono"),
+  phone: z.string().min(6, "Ingresa tu teléfono"),
   email: z.string().email("Ingresa un email válido"),
   petName: z.string().min(1, "Nombre de tu mascota"),
   species: z.string().min(1, "Especie (Perro, Gato, etc.)"),

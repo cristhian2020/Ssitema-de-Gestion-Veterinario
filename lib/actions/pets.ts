@@ -1,9 +1,9 @@
 "use server";
 
 import { db } from "@/db";
-import { pets, owners, type Pet, type Owner } from "@/db/schema";
+import { pets, owners, appointments, type Pet, type Owner } from "@/db/schema";
 import { petSchema, ownerSchema } from "@/lib/validations";
-import { eq, desc, and, or, ne } from "drizzle-orm";
+import { eq, desc, and, or, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 export type PetWithOwner = Pet & {
@@ -47,28 +47,28 @@ export async function createOwnerAction(data: unknown) {
 
   const cleanEmail = parsed.data.email.trim().toLowerCase();
   const cleanPhone = parsed.data.phone.trim();
+  const cleanName = parsed.data.fullName.trim();
 
   try {
-    // Validar si ya existe un propietario con el mismo correo o teléfono
+    // Validar si ya existe exactamente el mismo propietario registrado (mismo nombre y mismo contacto)
     const existingOwner = await db.query.owners.findFirst({
-      where: or(eq(owners.email, cleanEmail), eq(owners.phone, cleanPhone)),
+      where: and(
+        sql`LOWER(TRIM(${owners.fullName})) = ${cleanName.toLowerCase()}`,
+        or(eq(owners.email, cleanEmail), eq(owners.phone, cleanPhone))
+      ),
     });
 
     if (existingOwner) {
-      const matchReason =
-        existingOwner.email.toLowerCase() === cleanEmail
-          ? "correo electrónico"
-          : "número de teléfono";
       return {
         success: false,
-        error: `Ya existe un propietario registrado con este ${matchReason}: "${existingOwner.fullName}". Puedes seleccionarlo directamente desde la lista de dueños.`,
+        error: `Ya existe un propietario registrado con el mismo nombre y contacto: "${existingOwner.fullName}". Puedes seleccionarlo directamente desde la lista de dueños.`,
       };
     }
 
     const [newOwner] = await db
       .insert(owners)
       .values({
-        fullName: parsed.data.fullName.trim(),
+        fullName: cleanName,
         email: cleanEmail,
         phone: cleanPhone,
         whatsapp: parsed.data.whatsapp || cleanPhone,
@@ -99,24 +99,22 @@ export async function updateOwnerAction(ownerId: number, data: unknown) {
 
   const cleanEmail = parsed.data.email.trim().toLowerCase();
   const cleanPhone = parsed.data.phone.trim();
+  const cleanName = parsed.data.fullName.trim();
 
   try {
-    // Validar que no haya OTRO propietario con ese mismo email o teléfono
+    // Validar que no haya OTRO propietario con ese mismo nombre y contacto
     const duplicateOwner = await db.query.owners.findFirst({
       where: and(
         ne(owners.id, ownerId),
+        sql`LOWER(TRIM(${owners.fullName})) = ${cleanName.toLowerCase()}`,
         or(eq(owners.email, cleanEmail), eq(owners.phone, cleanPhone))
       ),
     });
 
     if (duplicateOwner) {
-      const matchReason =
-        duplicateOwner.email.toLowerCase() === cleanEmail
-          ? "correo electrónico"
-          : "número de teléfono";
       return {
         success: false,
-        error: `El ${matchReason} ingresado ya está asignado a otro propietario registrado ("${duplicateOwner.fullName}").`,
+        error: `El nombre y contacto ingresados ya pertenecen a otro propietario registrado ("${duplicateOwner.fullName}").`,
       };
     }
 
@@ -243,6 +241,12 @@ export async function updatePetAction(petId: number, data: unknown) {
       })
       .where(eq(pets.id, petId))
       .returning();
+
+    // Sincronizar el nuevo propietario en las citas pendientes de la mascota si cambió de dueño
+    await db
+      .update(appointments)
+      .set({ ownerId: parsed.data.ownerId })
+      .where(and(eq(appointments.petId, petId), eq(appointments.status, "pending")));
 
     revalidatePath("/dashboard/mascotas");
     revalidatePath("/dashboard/citas");

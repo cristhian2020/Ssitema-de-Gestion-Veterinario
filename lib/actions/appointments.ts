@@ -165,6 +165,40 @@ export async function updateAppointmentStatusAction(
 }
 
 /**
+ * Normaliza y compara si dos nombres corresponden a la misma persona
+ */
+function isSameOwnerName(name1: string, name2: string): boolean {
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
+      .trim();
+
+  const n1 = normalize(name1);
+  const n2 = normalize(name2);
+  if (!n1 || !n2) return false;
+  if (n1 === n2) return true;
+
+  // Si uno contiene exactamente al otro (ej: "Esther Ferrufino" y "Esther Ferrufino Villarroel")
+  if (n1.includes(n2) || n2.includes(n1)) return true;
+
+  const w1 = n1.split(/\s+/).filter(Boolean);
+  const w2 = n2.split(/\s+/).filter(Boolean);
+  const [shorter, longer] = w1.length <= w2.length ? [w1, w2] : [w2, w1];
+
+  const matched = shorter.filter((w) =>
+    longer.some((lw) => lw === w || (w.length >= 4 && (lw.includes(w) || w.includes(lw))))
+  );
+
+  if (shorter.length === 1) {
+    return matched.length === 1 && shorter[0].length >= 4;
+  }
+  return matched.length >= Math.min(2, shorter.length);
+}
+
+/**
  * Acción para el portal público: los dueños solicitan cita sin fricción
  */
 export async function bookPublicAppointmentAction(data: unknown) {
@@ -177,19 +211,40 @@ export async function bookPublicAppointmentAction(data: unknown) {
   }
 
   try {
+    const cleanName = parsed.data.ownerName.trim();
     const cleanEmail = parsed.data.email.trim().toLowerCase();
     const cleanPhone = parsed.data.phone.trim();
+    const cleanPetName = parsed.data.petName.trim();
+    const cleanSpecies = parsed.data.species.trim();
 
-    // 1. Buscar o crear propietario (por email o por teléfono)
-    let owner = await db.query.owners.findFirst({
-      where: or(eq(owners.email, cleanEmail), eq(owners.phone, cleanPhone)),
+    // 1. Buscar si el solicitante ya es un cliente registrado en la clínica.
+    // Para considerarse el MISMO cliente, debe coincidir tanto su nombre como algún dato de contacto.
+    const candidateOwners = await db.query.owners.findMany({
+      where: or(
+        eq(owners.email, cleanEmail),
+        eq(owners.phone, cleanPhone),
+        eq(owners.whatsapp, cleanPhone)
+      ),
     });
 
+    let owner = candidateOwners.find((c) => isSameOwnerName(c.fullName, cleanName));
+
+    // Si no coincidió por teléfono o correo, verificar si existe un único propietario con el mismo nombre exacto
+    if (!owner) {
+      const nameCandidates = await db.query.owners.findMany({
+        where: sql`LOWER(TRIM(${owners.fullName})) = ${cleanName.toLowerCase()}`,
+      });
+      if (nameCandidates.length === 1) {
+        owner = nameCandidates[0];
+      }
+    }
+
+    // Si NO se encontró un propietario con ese nombre, registrar al nuevo propietario con los datos de quien solicita la cita
     if (!owner) {
       const [newOwner] = await db
         .insert(owners)
         .values({
-          fullName: parsed.data.ownerName.trim(),
+          fullName: cleanName,
           email: cleanEmail,
           phone: cleanPhone,
           whatsapp: cleanPhone,
@@ -201,9 +256,12 @@ export async function bookPublicAppointmentAction(data: unknown) {
       owner = newOwner;
     }
 
-    // 2. Buscar o crear mascota para el dueño
+    // 2. Buscar o crear mascota para el dueño identificado o creado
     let pet = await db.query.pets.findFirst({
-      where: and(eq(pets.ownerId, owner.id), eq(pets.name, parsed.data.petName.trim())),
+      where: and(
+        eq(pets.ownerId, owner.id),
+        sql`LOWER(TRIM(${pets.name})) = ${cleanPetName.toLowerCase()}`
+      ),
     });
 
     if (!pet) {
@@ -211,12 +269,12 @@ export async function bookPublicAppointmentAction(data: unknown) {
         .insert(pets)
         .values({
           ownerId: owner.id,
-          name: parsed.data.petName.trim(),
-          species: parsed.data.species,
+          name: cleanPetName,
+          species: cleanSpecies,
           breed: "A determinar",
           sex: "Macho",
           weightKg: "0.0",
-          notes: "Origen: Reserva Portal Web. Ficha clínica pendiente de completar en recepción.",
+          notes: `Origen: Reserva Portal Web. Ficha clínica pendiente de completar en recepción. Solicitante: ${cleanName} (Tel: ${cleanPhone}).`,
         })
         .returning();
       pet = newPet;
@@ -235,14 +293,19 @@ export async function bookPublicAppointmentAction(data: unknown) {
         scheduledAt: isNaN(scheduledDateTime.getTime()) ? new Date() : scheduledDateTime,
         durationMinutes: 30,
         reason: parsed.data.reason,
-        notes: "Solicitud recibida desde Portal Web Público",
+        notes: `Solicitud recibida desde Portal Web Público. Solicitante: ${cleanName} (Tel: ${cleanPhone}, Email: ${cleanEmail})`,
       })
       .returning();
 
-    revalidatePath("/dashboard/mascotas");
-    revalidatePath("/dashboard/citas");
-    revalidatePath("/dashboard/historial");
-    revalidatePath("/dashboard");
+    try {
+      revalidatePath("/dashboard/mascotas");
+      revalidatePath("/dashboard/citas");
+      revalidatePath("/dashboard/historial");
+      revalidatePath("/dashboard");
+      revalidatePath("/");
+    } catch {
+      // No interrumpir si se ejecuta fuera de contexto HTTP (ej: tests o scripts)
+    }
 
     return {
       success: true,
